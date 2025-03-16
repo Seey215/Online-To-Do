@@ -7,39 +7,50 @@ interface SocketContextType {
 }
 
 const SocketContext = createContext<SocketContextType>({ socket: null });
-export const useSocket = () => useContext(SocketContext);
-export const SocketProvider = ({ children }: { children: ReactNode }) => {
+// export const useSocket = () => useContext(SocketContext);
+export const SocketProvider = ({ children, fishboneId: room }: { children: ReactNode; fishboneId: string }) => {
   const [socket, setSocket] = useState<Socket | null>(null);
 
   // TODO 下一步：创建房间(fishboneId)进行 socket.io 通信
   useEffect(() => {
-    const newSocket: Socket = io('http://localhost:3006');
+    const newSocket: Socket = io(`http://localhost:3006?room=${room}`);
     setSocket(newSocket);
 
+    // const room = fishboneId;
     newSocket.on('connect', () => {
-      console.log(`[client.on.connect] socketId${newSocket.id};`);
+      console.log(`[client.on.connect] socketId: ${newSocket.id};`);
     });
-    newSocket.on('disconnect', () => {
-      console.log('[client.on.disconnect]', newSocket.id); // undefined
-    });
-
-    newSocket.emit('socketTest', "客户端=》服务端");
-    newSocket.on('socketTest', (data) => {
-      console.log('接收到来自server的数据data:', data);
+    newSocket.on('disconnect', (reason) => {
+      console.log(`[client.on.connect] socketId: ${newSocket.id} disconnected due to ${reason}`);
     });
 
-    newSocket.emit("toServer", "[client.emit.server] Content");
-    newSocket.on("toServer", (data) => {
-      console.log("[client.on.toServer] 收到一条服务端=》客户端的消息：", data);
+    // newSocket.emit('joinRoom', { room, user: "userId:123abcef" });
+    // newSocket.on('joinRoom', (data)=>{
+    //   console.log(`[client.on.joinRoom]: 用户[${data}]`);
+    // })
+
+    // 监听房间消息
+    newSocket.on('roomMessage', (data) => {
+      console.log('[client.on.roomMessage]', data);
     });
 
     return () => {
       newSocket.off('connect');
-      newSocket.off('socketTest');
-      newSocket.off('toServer');
+      newSocket.off('disconnect');
+      newSocket.off('joinRoom');
+      newSocket.off('roomMessage');
       newSocket.close();
     };
-  }, []); // 空依赖数组确保只在组件加载时执行一次
+  }, [room]); // 空依赖数组确保只在组件加载时执行一次
+
+  const sendMessageToRoom = (message: string) => {
+    if (socket) {
+      console.log('[client.sendMessageToRoom] 发送了进入房间的消息');
+      socket.emit('sendMessageToRoom', { message });
+    }
+  }
+
+  sendMessageToRoom(`userId[123abcef] join Room[${room}]`);
 
   return (
     <SocketContext.Provider value={{ socket }}>
@@ -47,13 +58,3 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     </SocketContext.Provider>
   );
 };
-
-
-/* 
-
-No.1 步骤一：完成权限变动的即时编辑
-No.2 步骤二：完成头像、权限、进出房间的实时编辑
-No.3 步骤三：完成鱼骨图内容的实时编辑
-No.4 步骤四：完成光标的实时编辑
-
-*/

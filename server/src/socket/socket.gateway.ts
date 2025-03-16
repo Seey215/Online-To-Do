@@ -5,11 +5,12 @@ import {
   ConnectedSocket,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  WebSocketServer,
 } from '@nestjs/websockets';
 import { CreateSocketDto } from './dto/create-socket.dto';
 import { UpdateSocketDto } from './dto/update-socket.dto';
 import { SocketService } from './socket.service';
-import { Socket } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 
 @WebSocketGateway(3006, {
@@ -21,31 +22,42 @@ import { Logger } from '@nestjs/common';
   },
 })
 export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer()
+  server?: Server;
+
   private readonly logger = new Logger(SocketGateway.name);
   constructor(
     private readonly socketService: SocketService,
   ) { }
 
+  private getClientInfo(client: Socket) {
+    const reqUrl = client.request.url || '';
+    const url = new URL(reqUrl, `http://${client.request.headers.host}`);
+    const room = url.searchParams.get('room') || 'default';
+    return { room };
+  }
+
   // 处理客户端连接事件
   handleConnection(client: Socket) {
-    this.logger.log(`[server.on.connect]: 客户端已连接，socketId: ${client.id}`);
+    const { room } = this.getClientInfo(client);
+    client.join(room);
+    this.logger.log(`[server.on.connect]: { socketId: ${client.id} join room: ${room} }`);
   }
 
   // 处理客户端断开连接事件
   handleDisconnect(client: Socket) {
-    this.logger.log(`[server.on.disconnect]: 客户端已断开连接，socketId: ${client.id}`);
+    const { room } = this.getClientInfo(client);
+    client.leave(room);
+    this.logger.log(`[server.on.disconnect]: { socketId: ${client.id}, room: ${room} }`);
   }
 
-  @SubscribeMessage('socketTest')
-  socketTest(@ConnectedSocket() client: Socket, @MessageBody() data: string) {
-    this.logger.warn(`[socketTest] 收到来自前端的消息：[${data}]`);
-    client.emit('socketTest', `Server应答: ${data}`);
-  }
-
-  @SubscribeMessage('toServer')
-  toServer(@ConnectedSocket() client: Socket, @MessageBody() data: string) {
-    console.log(data);
-    client.emit('toServer', '这是一条发送给客户端的消息');
+  // 接收客户端发送的消息并广播给房间内其他客户端
+  @SubscribeMessage('sendMessageToRoom')
+  sendMessageToRoom(@ConnectedSocket() client: Socket, @MessageBody() { message }: { message: string }) {
+    const { room } = this.getClientInfo(client);
+    this.logger.warn(`[server.on.sendMessageToRoom]: 收到来自房间[${room}]的消息: ${message}`);
+    this.server?.to(room).emit('roomMessage', { room, message }); // 广播给房间内其他客户端
+    // client.emit('roomMessage', { room, message }); // 广播给房间内其他客户端
   }
 
   @SubscribeMessage('createSocket')
